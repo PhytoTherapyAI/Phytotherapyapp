@@ -26,16 +26,12 @@ rag_content = load_rag_data("RAG.docx")
 def map_keywords(user_input):
     input_lower = user_input.lower()
     mapping = {
-        # KIRMIZI KOD (ACİL) KELİMELERİ
         "göğsüm ağrıyor": ["acil_durum"],
         "kalbim sıkışıyor": ["acil_durum"],
         "nefes alamıyorum": ["acil_durum"],
         "kanamam durmuyor": ["acil_durum"],
-        "bayılacağım": ["acil_durum"],
-        "sol tarafım uyuştu": ["acil_durum"],
-        
-        # NORMAL TIBBİ KELİMELER
         "tansiyon": ["hypertension", "blood pressure", "meyan", "licorice", "sinameki", "garlic", "sarımsak"],
+        "kramp": ["statin", "greyfurt", "grapefruit", "kas yıkımı", "myopathy"],
         "baş dönmesi": ["tansiyon", "hypertension", "blood pressure"],
         "çarpıntı": ["kalp", "digoxin", "cardiovascular", "hypertension", "potasyum", "hypokalemia"],
         "şeker": ["diabetes", "kan şekeri", "ginseng", "hypoglycemic", "glucose"],
@@ -46,7 +42,7 @@ def map_keywords(user_input):
         "sıkıntı": ["anxiety", "valerian", "kedi otu", "sarı kantaron", "depression"],
         "depresyon": ["depression", "sarı kantaron", "st. john"],
         "ağrı": ["analgesic", "pain", "valerian", "kedi otu"],
-        "kolesterol": ["statin", "greyfurt", "grapefruit", "kas yıkımı", "cholesterol"],
+        "kolesterol": ["statin", "greyfurt", "grapefruit", "kas yıkımı", "cholesterol", "myopathy"],
         "bağışıklık": ["ekinezya", "echinacea", "immün", "organ nakli", "immunosuppressive"],
         "kabızlık": ["sinameki", "senna", "laksatif", "potasyum", "hypokalemia"]
     }
@@ -61,7 +57,6 @@ def map_keywords(user_input):
 def retrieve_context(user_input, content):
     search_terms = map_keywords(user_input)
     
-    # Eğer sistem kırmızı kod kelimesi yakalarsa hiç RAG'a bakma, direkt Acil Durum fırlat
     if "acil_durum" in search_terms:
         return "ACİL_DURUM_TESPİT_EDİLDİ"
         
@@ -76,33 +71,20 @@ def retrieve_context(user_input, content):
             relevant_sections.append(section)
             
     if relevant_sections:
-        return "\n\n".join(relevant_sections[:2])
+        return "\n\n".join(relevant_sections[:3]) # Kapsamı biraz genişlettik
     return "Eşleşen tıbbi veri bulunamadı."
 
-# --- KUSURSUZ TRİYAJ ANAYASASI (SİSTEM PROMPTU) ---
-def get_groq_response(user_prompt, context):
-    system_prompt = """Sen dünyanın en gelişmiş, şefkatli ve kurallara sıkı sıkıya bağlı Klinik Farmakoloji Asistanısın (Phyto-Asistan).
+# --- BEYİN 1: HASTA İÇİN ŞEFKATLİ ASİSTAN ---
+def get_patient_response(user_prompt, context):
+    system_prompt = """Sen dünyanın en gelişmiş, şefkatli Klinik Farmakoloji Asistanısın.
 
-KULLANICIYLA İLETİŞİM KURALLARIN (TRİYAJ ANAYASASI):
-
-DURUM 1 - 🚨 KIRMIZI KOD (ACİL DURUM) 🚨:
-Eğer Tıbbi Literatür kısmında "ACİL_DURUM_TESPİT_EDİLDİ" yazıyorsa VEYA kullanıcı "göğsüm ağrıyor, nefes alamıyorum, kanamam var, sol kolum uyuştu" gibi hayati bir tehlike belirtiyorsa:
-Tüm işlemleri anında durdur! Şefkatli ama çok net bir dille: "🚨 ACİL DURUM: Lütfen hemen 112'yi arayın veya en yakın acil servise başvurun. Göğüs ağrısı / nefes darlığı gibi durumlar evde bitkisel ürünlerle tedavi edilemez ve saniyeler bile çok önemlidir." de. Asla ama asla bitki önerme!
-
-DURUM 2 - ⚠️ POLİFARMASİ (ÇOKLU İLAÇ) ENGELİ ⚠️:
-Eğer kullanıcının mesajında 3 veya daha fazla ilaç/hastalık saydığını fark edersen (Örn: "Hem tansiyon, hem şeker hapı içiyorum, bir de kan sulandırıcı kullanıyorum"):
-Taramayı durdur. Ekrana ⚠️ POLİFARMASİ (ÇOKLU İLAÇ) UYARISI yaz. Hastaya: "Birden fazla kronik ilaç kullanımında, eklenecek tek bir bitkisel takviye bile öngörülemez zincirleme reaksiyonlara yol açabilir. Bu karmaşık tabloyu ancak tedavinizi yürüten hekim çözebilir, lütfen doktorunuza danışmadan hiçbir bitkisel ürün kullanmayın." de.
-
-DURUM 3 - SOHBET VE SELAMLAŞMA:
-Eğer kullanıcı sadece "Selam", "Harikasın", "Canım sıkkın" diyorsa, tıbbi robotik laflar etme, sadece dostça ve motive edici sohbet et.
-
-DURUM 4 - TIBBİ SORU ANCAK VERİ YOK:
-Eğer "Eşleşen tıbbi veri bulunamadı" yazıyorsa: Şefkatle geçmiş olsun de ve elindeki kanıta dayalı (RAG) veri setinde bunun olmadığını, doktoruna danışmasını söyle. Kafandan veri uydurma.
-
-DURUM 5 - TIBBİ SORU VE KANIT (RAG) VAR:
-RAG metninde eşleşen veri varsa (Örn: Sarı Kantaron, Meyan Kökü vb.):
-Durumun ciddiyetine göre 🔴 RİSKLİ, 🟡 DİKKAT veya 🟢 GÜVENLİ emojisiyle başla. Tıbbi jargonu halk diline çevir. Metindeki 'Sıfır Riskli Alternatif' bölümündeki öneriyi mutlaka sun.
-"""
+GÖREVLERİN:
+1. İLAÇ YAN ETKİSİ KONTROLÜ: Hastanın anlattığı şikayet (örn: kas krampları), kullandığı ilacın (örn: statin, diüretik) iyi bilinen bir yan etkisi olabilir mi? Eğer öyleyse hastaya şefkatle şunu söyle: "Şikayetleriniz, kullandığınız [İlaç Adı] ilacının bilinen bir yan etkisi olabilir. Doz ayarlaması veya ilaç değişimi için lütfen hekiminizle görüşün."
+2. ACİL DURUM KONTROLÜ: 'ACİL_DURUM_TESPİT_EDİLDİ' yazıyorsa derhal 112'ye yönlendir.
+3. ÇOKLU İLAÇ (POLİFARMASİ): Hasta 3 veya daha fazla kronik ilaç kullanıyorsa (Örn: Diüretik + Statin + Metformin), bitkisel takviyelerin bu kadar çok ilaçla tehlikeli zincirleme reaksiyonlar yapabileceğini belirt ve doktora danışmadan ot içmemesini söyle.
+4. RAG VERİSİ (Bitki): Eşleşen veri varsa (Örn: Statin ve Greyfurt etkileşimi), 🔴 RİSKLİ, 🟡 DİKKAT veya 🟢 GÜVENLİ emojisiyle uyarı yap. Tıbbi dili halk diline çevir.
+5. SIFIR RİSK: Her zaman RAG metnindeki sıfır riskli alternatifi öner.
+Asla kafandan tıbbi teşhis koyma, sadece rehberlik et."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -111,31 +93,51 @@ Durumun ciddiyetine göre 🔴 RİSKLİ, 🟡 DİKKAT veya 🟢 GÜVENLİ emojis
     
     try:
         chat_completion = client.chat.completions.create(
-            messages=messages,
-            model="llama-3.3-70b-versatile", 
-            temperature=0.3, 
-            max_tokens=1024
+            messages=messages, model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=1024
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
-        return f"❌ Yapay zeka yanıt üretirken bir hata oluştu: {e}"
+        return f"❌ Yanıt hatası: {e}"
 
-# --- SOL MENÜ (SİDEBAR) ---
+# --- BEYİN 2: DOKTOR İÇİN KONSÜLTASYON MEKTUBU ---
+def get_doctor_letter(user_prompt, context):
+    system_prompt = """Sen uzman bir klinik farmakologsun. Hastanın kullandığı ilaçlar, şikayetleri ve RAG veritabanından çekilen makalelere dayanarak, hastanın tedavisini yürüten hekime yönelik kısa, akademik ve doğrudan bir 'Konsültasyon Bilgi Notu' yaz.
+
+KURALLAR:
+1. Sayın Meslektaşım, şeklinde başla.
+2. Hastanın olası ilaç yan etkisini (Örn: Statin kaynaklı miyopati) veya polifarmasi riskini tıbbi bir dille özetle.
+3. Eğer RAG verisinde hastanın durumuyla ilgili bitki/ilaç etkileşimi varsa (CYP enzimleri, farmakokinetik mekanizmalar vb. kullanarak) bilimsel olarak açıkla.
+4. MUTLAKA RAG metnindeki makalelerin "PMID" numaralarını referans göstererek yaz (Örn: "PMID: 26299317 referanslı çalışmaya göre...").
+5. RAG verisi yoksa veya eşleşmiyorsa, mektubu sadece hastanın şikayetleri ve ilaç yan etkileri üzerine kur.
+Mektup kısa, net ve saygılı bir tonda olmalı."""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Hastanın Beyanı: {user_prompt}\n\nRAG Verisi (Buradaki PMID'leri kullan): {context}"}
+    ]
+    
+    try:
+        chat_completion = client.chat.completions.create(
+            messages=messages, model="llama-3.3-70b-versatile", temperature=0.2, max_tokens=800
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        return "Doktor mektubu oluşturulamadı."
+
+# --- ARAYÜZ ---
 with st.sidebar:
     st.title("🌿 Phytotherapy.ai")
     st.markdown("**Kanıta Dayalı Fitoterapi Asistanı**")
     st.divider()
     st.markdown("### 🧠 Sistem Beyni")
-    st.success("✅ Triyaj Niyet Okuma Modülü")
-    st.error("🚨 Kırmızı Kod & Acil Durum Engeli")
-    st.warning("⚠️ Polifarmasi (Çoklu İlaç) Engeli")
+    st.success("✅ Triyaj & Yan Etki Radarı")
+    st.success("✅ Çift LLM (Hasta & Hekim Mektubu)")
     st.success("✅ Altın Veri Seti (RAG) Aktif")
-    
     st.divider()
-    st.warning("⚠️ **Tıbbi Uyarı:** Bu bir karar destek sistemidir.")
+    st.warning("⚠️ **Tıbbi Uyarı:** Karar destek sistemidir.")
 
 st.title("Phyto-Asistan")
-st.markdown("Sizi dinleyen, acil durumlarda koruyan ve kanıta dayalı tıbbı halk diline çeviren asistan.")
+st.markdown("Sizi dinleyen, yan etkileri tespit eden ve doktorunuza tıbbi rapor hazırlayan asistan.")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -144,7 +146,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-prompt = st.chat_input("Selam verebilir, dertleşebilir veya tıbbi bir etkileşim sorabilirsiniz...")
+prompt = st.chat_input("Selam verebilir, şikayetinizi ve ilaçlarınızı yazabilirsiniz...")
 
 if prompt:
     with st.chat_message("user"):
@@ -154,15 +156,19 @@ if prompt:
     rag_context = retrieve_context(prompt, rag_content)
     
     with st.spinner("Phyto-Asistan mesajınızı değerlendiriyor..."):
-        ai_response = get_groq_response(prompt, rag_context)
+        # Hasta için cevabı al
+        patient_response = get_patient_response(prompt, rag_context)
 
     with st.chat_message("assistant", avatar="🌿"):
-        st.markdown(ai_response)
+        st.markdown(patient_response)
         
-        # Makaleyi sadece Durum 5'te (Veri varsa ve Acil Değilse) göster
-        if rag_context and "Eşleşen tıbbi veri bulunamadı" not in rag_context and "ACİL_DURUM" not in rag_context and any(keyword in ai_response for keyword in ["RİSKLİ", "DİKKAT", "GÜVENLİ"]):
-            with st.expander("🔬 Bilimsel Literatürü Göster (Hekimler İçin)"):
-                st.info("Aşağıdaki veriler sistemin (RAG) arka planda referans aldığı orijinal meta-analiz özetleridir.")
-                st.text(rag_context)
+        # Doktor için mektubu al ve genişletici panele koy (Eğer sohbet değilse)
+        if len(prompt.split()) > 2 and "ACİL_DURUM" not in rag_context:
+            with st.spinner("Hekim için konsültasyon notu hazırlanıyor..."):
+                doctor_letter = get_doctor_letter(prompt, rag_context)
+            
+            with st.expander("🩺 Hekiminiz İçin Tıbbi Konsültasyon Notu (PMID Referanslı)"):
+                st.info("Bu bölüm hekiminize göstermeniz için akademik dille hazırlanmıştır.")
+                st.write(doctor_letter)
 
-    st.session_state.messages.append({"role": "assistant", "content": ai_response})
+    st.session_state.messages.append({"role": "assistant", "content": patient_response})
